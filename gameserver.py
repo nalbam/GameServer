@@ -64,8 +64,10 @@ def resolve_region(aws, cli_region):
         "리전이 설정되지 않았습니다. 선택하세요:",
         COMMON_REGIONS,
         default_index=0,
-        allow_cancel=False,
+        allow_cancel=True,
     )
+    if chosen is None:
+        ui.fatal("리전이 선택되지 않아 종료합니다.")
     aws.region = chosen
     ui.info(f"리전: {chosen}")
 
@@ -194,7 +196,12 @@ def cmd_create(aws):
     if key_name and not ssh_cidr:
         ui.warn("내 공인 IP 조회 실패 — SSH를 0.0.0.0/0으로 엽니다.")
 
-    tag = deploy.select_version(meta["github_repo"]) if meta["github_repo"] else "latest"
+    if meta["github_repo"]:
+        tag = deploy.select_version(meta["github_repo"])
+        if tag is None:
+            return
+    else:
+        tag = "latest"
 
     ui.header("생성 요약")
     ui.info(f"게임:        {game}")
@@ -267,10 +274,13 @@ def cmd_create(aws):
 # -- manage -------------------------------------------------------------
 
 def cmd_redeploy(aws, server, meta):
-    if not meta["github_repo"]:
+    if meta["github_repo"]:
+        tag = deploy.select_version(meta["github_repo"])
+        if tag is None:
+            return
+    else:
         ui.warn("github_repo가 없어 버전 목록을 가져올 수 없습니다.")
-    tag = deploy.select_version(meta["github_repo"]) if meta["github_repo"] else \
-        ui.prompt("버전 태그", default="latest")
+        tag = ui.prompt("버전 태그", default="latest")
     bind_local = bool(server.get("domain"))
     script = deploy.render_restart_script(
         server["game"],

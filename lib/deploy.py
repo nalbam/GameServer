@@ -29,11 +29,14 @@ def fetch_versions(github_repo, limit=10):
 
 
 def select_version(github_repo):
-    """Interactive version pick; returns a docker tag (no leading 'v')."""
+    """Interactive version pick; returns a docker tag (no leading 'v'),
+    or None if the user cancels."""
     tags = fetch_versions(github_repo)
     options = ["latest"] + tags
-    chosen = ui.select("배포할 버전:", options, default_index=0, allow_cancel=False)
-    if chosen is None or chosen == "latest":
+    chosen = ui.select("배포할 버전:", options, default_index=0, allow_cancel=True)
+    if chosen is None:
+        return None
+    if chosen == "latest":
         return "latest"
     return chosen.lstrip("v")
 
