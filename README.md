@@ -61,14 +61,20 @@ SERVER_URL=snowclash.game.example.com
 ALLOWED_ORIGINS=https://snowclash.game.example.com,https://nalbam.github.io"
 ```
 
-## 게임 카탈로그
+## 게임 자동 탐색
 
-기본 등록된 게임 (직접 입력으로 추가 가능):
+게임은 하드코딩하지 않고, 이 저장소의 **형제 디렉터리(git repo + Dockerfile)** 에서 자동으로 찾아냅니다.
+각 게임의 메타데이터는 repo 자체에서 도출합니다:
 
-| 게임 | 이미지 | 포트 |
-|------|--------|------|
-| snowclash | `ghcr.io/nalbam/snowclash` | 2567 |
-| tankclash | `ghcr.io/nalbam/tankclash` | 2567 |
+| 값 | 출처 |
+|----|------|
+| `github_repo` (버전 조회) | `git remote get-url origin` → `owner/repo` |
+| `image` | `ghcr.io/<owner>/<repo>` (소문자) |
+| `port` | `Dockerfile`의 `EXPOSE` |
+| `ALLOWED_ORIGINS` 기본값 | `https://<owner>.github.io` (GitHub Pages) |
+
+예) `../SnowClash`, `../TankClash` → `snowclash`, `tankclash` 자동 등록.
+형제 repo가 없는 게임은 생성 시 이름·이미지·포트를 직접 입력할 수 있습니다.
 
 ## 옵션
 
@@ -95,6 +101,7 @@ GameServer/
 │   ├── ui.py                # 메뉴 / 프롬프트 / 컬러 로깅
 │   ├── aws.py               # AWS CLI subprocess 래퍼 (dry-run)
 │   ├── registry.py          # SSM 서버 레지스트리
+│   ├── discover.py          # 형제 git repo에서 게임 메타 자동 탐색
 │   ├── ec2.py               # AMI / 키페어 / 보안그룹 / IAM / 인스턴스 / EIP
 │   ├── deploy.py            # 버전 선택 + SSM Run Command 배포
 │   └── route53.py           # 호스팅영역 / A 레코드 / Nginx+Certbot

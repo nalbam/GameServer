@@ -49,7 +49,6 @@ if [[ -z "$ENV_CONTENT" ]]; then
     cat > "$INSTALL_DIR/.env" <<EOF
 NODE_ENV=production
 PORT=$APP_PORT
-ALLOWED_ORIGINS=https://nalbam.github.io
 EOF
 else
     echo "$ENV_CONTENT" > "$INSTALL_DIR/.env"

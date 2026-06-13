@@ -12,23 +12,16 @@ Usage:
 
 import argparse
 import datetime
+import os
 
 from lib import aws as awslib
-from lib import deploy, ec2, registry, route53, ui
+from lib import deploy, discover, ec2, registry, route53, ui
 
-# Known games. Unknown games can be added interactively.
-CATALOG = {
-    "snowclash": {
-        "image": "ghcr.io/nalbam/snowclash",
-        "port": 2567,
-        "github_repo": "nalbam/SnowClash",
-    },
-    "tankclash": {
-        "image": "ghcr.io/nalbam/tankclash",
-        "port": 2567,
-        "github_repo": "nalbam/TankClash",
-    },
-}
+# Games are auto-discovered from sibling git repos (see discover.py). The tool
+# lives in <account>/GameServer; games live alongside it. Populated in main().
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+GAMES_ROOT = os.path.dirname(REPO_DIR)
+CATALOG = {}
 
 COMMON_REGIONS = [
     "ap-northeast-2",
@@ -81,7 +74,7 @@ def game_meta(game, server=None):
         if server.get("port"):
             meta["port"] = server["port"]
     if "image" not in meta:
-        meta["image"] = ui.prompt_required(f"Docker 이미지 (예: ghcr.io/nalbam/{game})")
+        meta["image"] = ui.prompt_required(f"Docker 이미지 (예: ghcr.io/<owner>/{game})")
     if "port" not in meta:
         meta["port"] = int(ui.prompt("앱 포트", default="2567"))
     if "github_repo" not in meta:
@@ -139,13 +132,12 @@ def ensure_env(aws, game, meta, public_ip_hint=None):
     ):
         return
     origins = ui.prompt(
-        "ALLOWED_ORIGINS", default="https://nalbam.github.io"
+        "ALLOWED_ORIGINS (클라이언트 오리진, 쉼표 구분, 비우면 생략)",
+        default=meta.get("default_origin", ""),
     )
-    env = (
-        "NODE_ENV=production\n"
-        f"PORT={meta['port']}\n"
-        f"ALLOWED_ORIGINS={origins}\n"
-    )
+    env = "NODE_ENV=production\n" f"PORT={meta['port']}\n"
+    if origins:
+        env += f"ALLOWED_ORIGINS={origins}\n"
     registry.put_env(aws, game, env)
     ui.success("기본 env 생성됨 (도메인 연결 후 SERVER_URL/ALLOWED_ORIGINS 갱신 권장)")
 
@@ -437,7 +429,11 @@ def main():
     if args.dry_run:
         ui.warn("DRY-RUN 모드: 변경 작업은 실행되지 않습니다.")
 
+    CATALOG.update(discover.discover_games(GAMES_ROOT))
+
     check_auth(aws)
+    if CATALOG:
+        ui.info(f"자동 탐색된 게임: {', '.join(sorted(CATALOG))}")
     resolve_region(aws, args.region)
     main_menu(aws)
 
