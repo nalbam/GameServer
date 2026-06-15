@@ -93,6 +93,7 @@ def select(title, options, labeler=str, default_index=0, allow_cancel=True):
     options: list of items.
     labeler: item -> display string.
     Returns the chosen item, or None if cancelled.
+    When allow_cancel is True, empty input defaults to cancel (0).
     """
     if not options:
         return None
@@ -105,10 +106,11 @@ def select(title, options, labeler=str, default_index=0, allow_cancel=True):
         print(f"  {_c(DIM, '0')}) {_c(DIM, '취소')}")
     print()
 
+    default_choice = 0 if allow_cancel else default_index + 1
     while True:
-        raw = _read(f"선택 [{default_index + 1}]: ").strip()
+        raw = _read(f"선택 [{default_choice}]: ").strip()
         if not raw:
-            return options[default_index]
+            return None if allow_cancel else options[default_index]
         if not raw.isdigit():
             warn("숫자를 입력하세요.")
             continue
