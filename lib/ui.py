@@ -5,6 +5,7 @@ works even when stdin is piped.
 """
 
 import sys
+import unicodedata
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -122,16 +123,26 @@ def select(title, options, labeler=str, default_index=0, allow_cancel=True):
         warn(f"1 ~ {len(options)} 사이로 입력하세요.")
 
 
+def _display_width(text):
+    """Terminal display width, counting East Asian wide/fullwidth chars as 2."""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+               for ch in text)
+
+
+def _pad(text, width):
+    return text + " " * max(0, width - _display_width(text))
+
+
 def table(rows, headers):
     """Render a simple aligned text table. rows: list of tuples/lists."""
     cols = len(headers)
-    widths = [len(str(h)) for h in headers]
+    widths = [_display_width(str(h)) for h in headers]
     for row in rows:
         for i in range(cols):
-            widths[i] = max(widths[i], len(str(row[i])))
+            widths[i] = max(widths[i], _display_width(str(row[i])))
 
     def fmt(cells, dim=False):
-        line = "  ".join(str(c).ljust(widths[i]) for i, c in enumerate(cells))
+        line = "  ".join(_pad(str(c), widths[i]) for i, c in enumerate(cells))
         return _c(DIM, line) if dim else line
 
     print()
