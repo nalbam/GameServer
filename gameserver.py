@@ -169,7 +169,7 @@ def cmd_create(aws):
     if key_pairs:
         key_name = ui.select(
             "키 페어 (SSH 접속용):",
-            key_pairs + ["(없음 — SSM만 사용)"],
+            ["(없음 — SSM만 사용)"] + key_pairs,
             allow_cancel=True,
         )
         if key_name is None:
