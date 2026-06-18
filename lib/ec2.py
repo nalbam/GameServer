@@ -9,9 +9,6 @@ import urllib.request
 
 from . import ui
 
-ROLE_NAME = "gameserver-ec2-role"
-PROFILE_NAME = "gameserver-ec2-profile"
-
 # x86_64 first: the game images are published linux/amd64-only, so an ARM
 # (Graviton) instance would fail to run them. ARM options stay available but
 # are guarded against by image-architecture checks in the launch flow.
@@ -161,8 +158,9 @@ def _sg_id_by_name(aws, vpc_id, name):
 
 
 def ensure_security_group(aws, game, vpc_id, app_port, open_app_port, ssh_cidr):
-    """Create (or reuse) a security group allowing SSH/HTTP/HTTPS and,
-    when open_app_port is set, the raw app port for eip:port access."""
+    """Create (or reuse) a security group allowing HTTP/HTTPS (and SSH only
+    when ssh_cidr is set) plus, when open_app_port is set, the raw app port
+    for eip:port access."""
     name = f"gameserver-{game}"
     existing = _sg_id_by_name(aws, vpc_id, name)
     if existing:
@@ -207,7 +205,8 @@ def ensure_security_group(aws, game, vpc_id, app_port, open_app_port, ssh_cidr):
             check=False,
         )
 
-    authorize(22, ssh_cidr or "0.0.0.0/0", "SSH")
+    if ssh_cidr:
+        authorize(22, ssh_cidr, "SSH")
     authorize(80, "0.0.0.0/0", "HTTP")
     authorize(443, "0.0.0.0/0", "HTTPS")
     if open_app_port:
@@ -217,18 +216,60 @@ def ensure_security_group(aws, game, vpc_id, app_port, open_app_port, ssh_cidr):
     return sg_id
 
 
+def instance_security_groups(aws, instance_id):
+    """The security-group ids attached to an instance (empty list if gone)."""
+    if not instance_id:
+        return []
+    result = aws.run(
+        ["ec2", "describe-instances", "--instance-ids", instance_id],
+        check=False,
+    )
+    for res in (result or {}).get("Reservations", []):
+        for inst in res.get("Instances", []):
+            return [g["GroupId"] for g in inst.get("SecurityGroups", [])]
+    return []
+
+
+def revoke_app_port(aws, sg_id, app_port, cidr="0.0.0.0/0"):
+    """Remove the raw app-port ingress so only Nginx (443) stays reachable.
+    Idempotent: a missing rule is not treated as an error."""
+    aws.run(
+        [
+            "ec2",
+            "revoke-security-group-ingress",
+            "--group-id",
+            sg_id,
+            "--ip-permissions",
+            json.dumps(
+                [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": app_port,
+                        "ToPort": app_port,
+                        "IpRanges": [{"CidrIp": cidr}],
+                    }
+                ]
+            ),
+        ],
+        mutating=True,
+        check=False,
+    )
+
+
 # -- IAM instance profile ----------------------------------------------
 
-def ensure_instance_profile(aws):
-    """Idempotently create the shared EC2 role + instance profile granting
-    SSM agent access and read on /env/prod/* and /gameserver/*."""
+def ensure_instance_profile(aws, game):
+    """Idempotently create a per-game EC2 role + instance profile granting SSM
+    agent access and read on this game's /env/prod/<game> parameter only."""
+    role = f"gameserver-{game}-role"
+    profile = f"gameserver-{game}-profile"
     existing = aws.run(
-        ["iam", "get-instance-profile", "--instance-profile-name", PROFILE_NAME],
+        ["iam", "get-instance-profile", "--instance-profile-name", profile],
         check=False,
     )
     if existing and "InstanceProfile" in existing:
-        ui.info(f"기존 IAM 인스턴스 프로파일 재사용: {PROFILE_NAME}")
-        return PROFILE_NAME
+        ui.info(f"기존 IAM 인스턴스 프로파일 재사용: {profile}")
+        return profile
 
     trust = {
         "Version": "2012-10-17",
@@ -245,7 +286,7 @@ def ensure_instance_profile(aws):
             "iam",
             "create-role",
             "--role-name",
-            ROLE_NAME,
+            role,
             "--assume-role-policy-document",
             json.dumps(trust),
         ],
@@ -257,7 +298,7 @@ def ensure_instance_profile(aws):
             "iam",
             "attach-role-policy",
             "--role-name",
-            ROLE_NAME,
+            role,
             "--policy-arn",
             "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
         ],
@@ -271,8 +312,7 @@ def ensure_instance_profile(aws):
                 "Effect": "Allow",
                 "Action": ["ssm:GetParameter", "ssm:GetParameters"],
                 "Resource": [
-                    "arn:aws:ssm:*:*:parameter/env/prod/*",
-                    "arn:aws:ssm:*:*:parameter/gameserver/*",
+                    f"arn:aws:ssm:{aws.region or '*'}:*:parameter/env/prod/{game}",
                 ],
             }
         ],
@@ -282,7 +322,7 @@ def ensure_instance_profile(aws):
             "iam",
             "put-role-policy",
             "--role-name",
-            ROLE_NAME,
+            role,
             "--policy-name",
             "gameserver-ssm-read",
             "--policy-document",
@@ -296,7 +336,7 @@ def ensure_instance_profile(aws):
             "iam",
             "create-instance-profile",
             "--instance-profile-name",
-            PROFILE_NAME,
+            profile,
         ],
         mutating=True,
         check=False,
@@ -306,20 +346,20 @@ def ensure_instance_profile(aws):
             "iam",
             "add-role-to-instance-profile",
             "--instance-profile-name",
-            PROFILE_NAME,
+            profile,
             "--role-name",
-            ROLE_NAME,
+            role,
         ],
         mutating=True,
         check=False,
     )
-    ui.success(f"IAM 인스턴스 프로파일 생성: {PROFILE_NAME}")
+    ui.success(f"IAM 인스턴스 프로파일 생성: {profile}")
     if not aws.dry_run:
         ui.info("IAM 전파 대기 (10초)...")
         import time
 
         time.sleep(10)
-    return PROFILE_NAME
+    return profile
 
 
 # -- launch + EIP -------------------------------------------------------

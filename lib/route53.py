@@ -66,6 +66,8 @@ systemctl start nginx
 rm -f /etc/nginx/conf.d/default.conf
 
 cat > /etc/nginx/conf.d/{game}.conf <<'NGINX'
+limit_req_zone  $binary_remote_addr zone={game}_req:10m rate=20r/s;
+limit_conn_zone $binary_remote_addr zone={game}_conn:10m;
 map $http_upgrade $connection_upgrade {{
     default upgrade;
     '' close;
@@ -78,11 +80,17 @@ server {{
     listen 80;
     server_name {fqdn};
 
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+
     location = / {{
         return 200 '{game} server OK';
         add_header Content-Type text/plain;
     }}
     location / {{
+        limit_req  zone={game}_req burst=40 nodelay;
+        limit_conn {game}_conn 30;
         proxy_pass http://{game}_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

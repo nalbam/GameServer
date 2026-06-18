@@ -186,7 +186,14 @@ def cmd_create(aws):
 
     ssh_cidr = ec2.my_public_cidr() if key_name else None
     if key_name and not ssh_cidr:
-        ui.warn("내 공인 IP 조회 실패 — SSH를 0.0.0.0/0으로 엽니다.")
+        ui.warn("내 공인 IP 조회 실패 — SSH를 자동으로 열지 않습니다.")
+        ssh_cidr = (
+            ui.prompt(
+                "SSH 허용 CIDR (예: 203.0.113.4/32, 비우면 SSH 생략 — SSM으로 관리)",
+                default="",
+            ).strip()
+            or None
+        )
 
     if meta["github_repo"]:
         tag = deploy.select_version(meta["github_repo"])
@@ -208,7 +215,7 @@ def cmd_create(aws):
     sg_id = ec2.ensure_security_group(
         aws, game, vpc_id, meta["port"], open_app_port=True, ssh_cidr=ssh_cidr
     )
-    profile = ec2.ensure_instance_profile(aws)
+    profile = ec2.ensure_instance_profile(aws, game)
     arch = ec2.architecture_for(aws, instance_type)
     image_arches = ec2.image_architectures(meta["image"], tag)
     if image_arches and ec2.normalize_arch(arch) not in image_arches:
@@ -247,6 +254,7 @@ def cmd_create(aws):
             "public_ip": public_ip,
             "region": aws.region,
             "instance_type": instance_type,
+            "sg_id": sg_id,
             "domain": "",
             "image": meta["image"],
             "version": tag,
@@ -258,9 +266,13 @@ def cmd_create(aws):
 
     deploy.wait_ssm_online(aws, instance_id)
     ui.header("생성 완료")
-    print(f"  접속:  http://{public_ip}:{meta['port']}")
+    print(f"  헬스체크/디버그:  http://{public_ip}:{meta['port']}")
     print("  부트스트랩(docker pull/run)은 인스턴스에서 1~3분 더 진행됩니다.")
-    print("  도메인(HTTPS) 연결은 관리 메뉴 > '도메인 연결'을 사용하세요.")
+    ui.warn(
+        "GitHub Pages(HTTPS) 클라이언트는 HTTPS 도메인 연결이 필수입니다 — "
+        "http://eip:port 는 브라우저에서 Mixed Content로 차단됩니다."
+    )
+    print("  도메인(HTTPS) 연결: 관리 메뉴 > '도메인 연결' (연결 시 평문 포트는 자동 차단)")
 
 
 # -- manage -------------------------------------------------------------
@@ -298,8 +310,12 @@ def cmd_connect_domain(aws, server, meta):
         return
     zones = route53.list_hosted_zones(aws)
     if not zones:
-        ui.warn("호스팅영역이 없습니다. eip:port로 접속하세요.")
-        print(f"  접속: http://{server['public_ip']}:{meta['port']}")
+        ui.warn("호스팅영역이 없어 HTTPS를 붙일 수 없습니다.")
+        ui.warn(
+            "GitHub Pages(HTTPS) 클라이언트는 평문 http://eip:port 에 연결할 수 없습니다 "
+            "(Mixed Content 차단). 호스팅영역을 준비한 뒤 다시 시도하세요."
+        )
+        print(f"  헬스체크/디버그: http://{server['public_ip']}:{meta['port']}")
         return
     zone = ui.select(
         "호스팅영역:", zones, labeler=lambda z: z["name"], allow_cancel=True
@@ -322,9 +338,44 @@ def cmd_connect_domain(aws, server, meta):
     ):
         server["domain"] = fqdn
         registry.put_server(aws, server["game"], server)
+        ui.success(f"HTTPS 준비 완료: https://{fqdn}")
+        _seal_plaintext_port(aws, server, meta)
         ui.header("도메인 연결 완료")
         print(f"  접속: https://{fqdn}")
         print("  SERVER_URL/ALLOWED_ORIGINS를 SSM env에 갱신하고 재배포하세요.")
+
+
+def _seal_plaintext_port(aws, server, meta):
+    """After HTTPS is up, re-bind the container to 127.0.0.1 (Nginx fronts it)
+    and revoke the public app-port ingress so only 443 (WSS) is reachable.
+    The port is closed only after a successful re-bind, never on failure."""
+    ui.info("컨테이너를 127.0.0.1 바인딩으로 재배포합니다 (평문 포트 차단 준비)...")
+    rebind = deploy.render_restart_script(
+        server["game"],
+        meta["image"],
+        server.get("version", "latest"),
+        meta["port"],
+        registry.env_param_name(server["game"]),
+        bind_local=True,
+    )
+    if not deploy.send_command(
+        aws, server["instance_id"], rebind, f"rebind {server['game']} -> 127.0.0.1"
+    ):
+        ui.warn("재바인딩 재배포 실패 — 평문 포트를 차단하지 않았습니다 (접근 유지). 재시도하세요.")
+        return
+
+    sg_id = server.get("sg_id")
+    if not sg_id:
+        sgs = ec2.instance_security_groups(aws, server["instance_id"])
+        sg_id = sgs[0] if sgs else None
+        if sg_id:
+            server["sg_id"] = sg_id
+            registry.put_server(aws, server["game"], server)
+    if not sg_id:
+        ui.warn("보안그룹을 찾지 못해 앱 포트를 자동 차단하지 못했습니다 (수동 확인 필요).")
+        return
+    ec2.revoke_app_port(aws, sg_id, meta["port"])
+    ui.success(f"평문 앱 포트({meta['port']}) 차단 완료 — 외부는 443(WSS)만 접속 가능")
 
 
 def cmd_delete(aws, server):
