@@ -66,6 +66,7 @@ docker run -d \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     -p "0.0.0.0:${APP_PORT}:${APP_PORT}" \
+    -v "${GAME}-data:/app/data" \
     --env-file "$INSTALL_DIR/.env" \
     "${DOCKER_IMAGE}:${DOCKER_TAG}"
 

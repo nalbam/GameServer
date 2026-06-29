@@ -80,6 +80,7 @@ docker stop {game} 2>/dev/null || true
 docker rm {game} 2>/dev/null || true
 docker run -d --name {game} --restart unless-stopped \
     -p "{bind}:{app_port}:{app_port}" \
+    -v "{game}-data:/app/data" \
     --env-file "$INSTALL_DIR/.env" \
     "$IMAGE"
 docker image prune -f >/dev/null 2>&1 || true

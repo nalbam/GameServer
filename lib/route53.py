@@ -84,8 +84,8 @@ server {{
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options DENY always;
 
-    location = / {{
-        return 200 '{game} server OK';
+    location = /healthz {{
+        return 200 '{game} OK';
         add_header Content-Type text/plain;
     }}
     location / {{
