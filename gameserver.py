@@ -322,7 +322,11 @@ def cmd_connect_domain(aws, server, meta):
     )
     if zone is None:
         return
-    fqdn = route53.fqdn_for(server["game"], zone["name"])
+    subdomain = ui.prompt(
+        "서브도메인 (zone 앞부분, 비우면 zone 루트)",
+        default=route53.default_subdomain(server["game"]),
+    )
+    fqdn = route53.fqdn_for(subdomain, zone["name"])
     email = ui.prompt("Let's Encrypt 이메일", default=f"admin@{zone['name']}")
     ui.info(f"도메인: {fqdn} -> {server['public_ip']}")
     if not ui.confirm("A 레코드 생성 + HTTPS 설정을 진행할까요?", default=True):

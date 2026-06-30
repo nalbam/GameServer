@@ -1,5 +1,6 @@
 """Route53 hosted-zone lookup and the Nginx + Let's Encrypt setup that
-fronts a game server at <game>.game.<zone> over HTTPS.
+fronts a game server at <subdomain>.<zone> over HTTPS. The subdomain is
+user-supplied (default <game>.game), so the zone apex is also reachable.
 
 When no hosted zone is available the caller falls back to http://<eip>:<port>.
 """
@@ -23,8 +24,15 @@ def list_hosted_zones(aws):
     return zones
 
 
-def fqdn_for(game, zone_name):
-    return f"{game}.game.{zone_name}"
+def default_subdomain(game):
+    return f"{game}.game"
+
+
+def fqdn_for(subdomain, zone_name):
+    """Assemble an FQDN from a subdomain prefix and a zone. An empty
+    subdomain resolves to the zone apex."""
+    subdomain = subdomain.strip(". ")
+    return f"{subdomain}.{zone_name}" if subdomain else zone_name
 
 
 def upsert_a_record(aws, zone_id, fqdn, ip, ttl=300):

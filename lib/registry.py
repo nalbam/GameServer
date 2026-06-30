@@ -2,7 +2,7 @@
 
 Each server is one String parameter at /gameserver/<game> holding JSON:
     {instance_id, eip_alloc_id, public_ip, region, instance_type,
-     domain, image, version, port, created_at}
+     sg_id, domain, image, version, port, created_at}
 
 The per-game runtime environment lives separately at /env/prod/<game>
 (SecureString) so it stays compatible with the in-instance deploy scripts.
