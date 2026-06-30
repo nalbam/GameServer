@@ -115,7 +115,21 @@ NGINX
 
 nginx -t && systemctl reload nginx
 
-certbot --nginx -d {fqdn} --non-interactive --agree-tos \
+certbot_with_retry() {{
+    local attempt
+    for attempt in 1 2 3 4 5 6; do
+        if certbot "$@"; then
+            return 0
+        fi
+        if [ "$attempt" = "6" ]; then
+            return 1
+        fi
+        echo "certbot failed; retrying in 20s ($attempt/6)"
+        sleep 20
+    done
+}}
+
+certbot_with_retry --nginx -d {fqdn} --non-interactive --agree-tos \
     --email {email} --redirect
 
 systemctl enable certbot-renew.timer

@@ -91,6 +91,7 @@ ALLOWED_ORIGINS=https://snowclash.game.example.com,https://nalbam.github.io"
   (`aws ssm describe-instance-information`). 인스턴스 프로파일에 `AmazonSSMManagedInstanceCore`가 필요합니다.
 - **certbot 인증서 발급 실패**: A 레코드 전파 전이라면 잠시 후 '도메인 연결'을 다시 실행하세요.
   `dig +short <fqdn>`로 EIP를 가리키는지 확인합니다.
+  `Another instance of Certbot is already running`이면 기존 certbot 작업이 끝난 뒤 다시 시도하세요.
 - **부트스트랩 미완료**: 생성 직후 인스턴스 내부에서 docker pull/run이 1~3분 진행됩니다.
   `http://<eip>:<port>` 응답이 없으면 잠시 기다린 뒤 재시도하세요.
 
